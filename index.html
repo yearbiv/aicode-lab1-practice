@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Snake</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #05060c;
+    color: #e8ecf8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas { display: block; }
+
+  /* vignette and the red flash on death sit above the canvas, below the menus */
+  #vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 42%, rgba(0,0,0,0.55) 100%);
+  }
+  #flash {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(ellipse at 50% 50%, rgba(255,70,70,0.0) 30%, rgba(255,40,60,0.45) 100%);
+  }
+  #flash.on { animation: hit 0.45s ease-out; }
+  @keyframes hit { 0% { opacity: 1; } 100% { opacity: 0; } }
+  body.dragging canvas, body.dragging { cursor: grabbing; }
+
+  #hud, #hint { transition: opacity 0.2s ease; }
+  #hud {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    text-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+    pointer-events: none;
+  }
+  #hud .dim { font-size: 12px; opacity: 0.5; letter-spacing: 0.16em; }
+  #hud .pop { animation: pop 0.3s ease-out; }
+  @keyframes pop {
+    0% { transform: scale(1); color: #e8ecf8; }
+    40% { transform: scale(1.22); color: #b7ffd9; }
+    100% { transform: scale(1); color: #e8ecf8; }
+  }
+  #score { display: inline-block; }
+  #hint {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  #hint b { color: #cfe0ff; font-weight: normal; }
+  body.menu #hud, body.menu #hint { opacity: 0; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 6, 14, 0.82);
+    text-align: center;
+  }
+  .overlay.show { display: flex; }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 42px;
+    letter-spacing: 0.22em;
+    color: #8ff0bd;
+    text-shadow: 0 0 26px rgba(60, 220, 150, 0.45);
+  }
+  .sub {
+    margin: 0 0 22px;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    opacity: 0.5;
+  }
+  .cols {
+    display: flex;
+    gap: 46px;
+    align-items: flex-start;
+    justify-content: center;
+    margin-bottom: 14px;
+  }
+  .panel { margin-bottom: 18px; }
+  .panel-title {
+    font-size: 11px;
+    letter-spacing: 0.26em;
+    opacity: 0.45;
+    margin-bottom: 10px;
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 7px 14px;
+    align-items: center;
+    font-size: 13px;
+  }
+  kbd {
+    display: inline-block;
+    min-width: 26px;
+    padding: 4px 8px;
+    border: 1px solid #3e5280;
+    border-bottom-width: 3px;
+    border-radius: 6px;
+    background: #141c33;
+    color: #cfe0ff;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .keys .label { text-align: left; opacity: 0.85; }
+  .mouse { text-align: left; opacity: 0.6; font-size: 11px; }
+  .note {
+    margin: 8px auto 0;
+    font-size: 11px;
+    opacity: 0.5;
+    max-width: 480px;
+    line-height: 1.8;
+  }
+  .note em { color: #8ff0bd; font-style: normal; opacity: 0.9; }
+
+  .speeds { display: flex; gap: 10px; justify-content: center; }
+  .btn {
+    padding: 9px 16px;
+    border: 1px solid #334264;
+    border-radius: 8px;
+    background: #111a2e;
+    color: #9fb2d8;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  .btn:hover { border-color: #4a6294; color: #cfe0ff; }
+  .btn.sel {
+    border-color: #4fd99a;
+    background: #15402f;
+    color: #b7ffd9;
+    box-shadow: 0 0 18px rgba(79, 217, 154, 0.25);
+  }
+  .btn small { display: block; opacity: 0.55; font-size: 10px; margin-top: 3px; }
+
+  .go {
+    margin-top: 8px;
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: #b7ffd9;
+    animation: blink 1.6s ease-in-out infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  .final { margin: 0 0 18px; font-size: 16px; opacity: 0.8; }
+</style>
+</head>
+<body class="menu">
+<div id="vignette"></div>
+<div id="flash"></div>
+<div id="hud">
+  <div>SCORE <span id="score">0</span></div>
+  <div class="dim">BEST <span id="best">0</span></div>
+  <div class="dim">LENGTH <span id="len">5</span></div>
+</div>
+<div id="hint">
+  <b>&#8592; &#8594;</b> left / right &nbsp;&middot;&nbsp;
+  <b>&#8593; &#8595;</b> up / down &nbsp;&middot;&nbsp;
+  <b>W S</b> away / toward you<br>
+  <b>move the mouse</b> to look around &nbsp;&middot;&nbsp;
+  <b>scroll</b> zoom &nbsp;&middot;&nbsp;
+  <b>right-drag</b> pan &nbsp;&middot;&nbsp;
+  <b>0</b> reset view &nbsp;&middot;&nbsp;
+  <b>C</b> camera &nbsp;&middot;&nbsp;
+  <b>P</b> pause &nbsp;&middot;&nbsp;
+  <b>R</b> restart &nbsp;&middot;&nbsp; <b>M</b> menu
+</div>
+
+<div id="menu" class="overlay show">
+  <h1>3D SNAKE</h1>
+  <p class="sub">GRAZE THE GLOWING ORBS</p>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="panel-title">DIRECTIONS</div>
+      <div class="keys">
+        <div><kbd>&#8592;</kbd></div><div class="label">left</div>
+        <div><kbd>&#8594;</kbd></div><div class="label">right</div>
+        <div><kbd>&#8593;</kbd></div><div class="label">up</div>
+        <div><kbd>&#8595;</kbd></div><div class="label">down</div>
+        <div><kbd>W</kbd></div><div class="label">away from you</div>
+        <div><kbd>S</kbd></div><div class="label">toward you</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">VIEW</div>
+      <div class="keys">
+        <div class="mouse">move mouse</div><div class="label">look around, no clicking</div>
+        <div class="mouse">scroll</div><div class="label">zoom in / out</div>
+        <div class="mouse">right-drag</div><div class="label">pan</div>
+        <div><kbd>0</kbd></div><div class="label">reset the view</div>
+        <div><kbd>P</kbd></div><div class="label">pause</div>
+        <div><kbd>R</kbd></div><div class="label">restart</div>
+        <div><kbd>M</kbd></div><div class="label">back to this screen</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    The cage is <em>endless</em> &mdash; slide through any wall and you come straight out the other side.
+    Only running into yourself ends the run.<br>
+    Keys follow the view: <kbd>&#8592;</kbd> is always left on screen, however you have turned the cube.
+  </p>
+
+  <div class="panel">
+    <div class="panel-title">SPEED &nbsp;&mdash;&nbsp; PRESS 1 / 2 / 3</div>
+    <div class="speeds" id="speeds">
+      <button class="btn opt" data-speed="0">1 &middot; SLOW<small>relaxed</small></button>
+      <button class="btn opt sel" data-speed="1">2 &middot; NORMAL<small>default</small></button>
+      <button class="btn opt" data-speed="2">3 &middot; FAST<small>hectic</small></button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">CAMERA &nbsp;&mdash;&nbsp; PRESS C TO SWAP</div>
+    <div class="speeds" id="cams">
+      <button class="btn opt sel" data-cam="free">FREE VIEW<small>the mouse looks around</small></button>
+      <button class="btn opt" data-cam="follow">AUTO FOLLOW<small>rides behind the snake</small></button>
+    </div>
+  </div>
+
+  <div class="go">PRESS ENTER TO START</div>
+</div>
+
+<div id="paused" class="overlay">
+  <h1>PAUSED</h1>
+  <p class="final">press <kbd>P</kbd> to carry on</p>
+</div>
+
+<div id="over" class="overlay">
+  <h1>GAME OVER</h1>
+  <p class="final">SCORE <span id="finalScore">0</span> &nbsp;&middot;&nbsp; BEST <span id="finalBest">0</span></p>
+  <div class="keys">
+    <div><kbd>R</kbd></div><div class="label">play again</div>
+    <div><kbd>M</kbd></div><div class="label">start screen</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ---------- tuning ----------
+  var GRID = 17;                    // cells per axis; the field wraps at every face
+  var CELL = 1;
+  var HALF = (GRID - 1) / 2;
+  var ARENA = GRID * CELL;
+  var WALL = ARENA / 2;
+
+  var SPEEDS = [                    // ms per move: start, floor, per-orb speed-up
+    { name: 'SLOW',   start: 520, min: 300, gain: 4 },
+    { name: 'NORMAL', start: 400, min: 220, gain: 4 },
+    { name: 'FAST',   start: 290, min: 150, gain: 4 }
+  ];
+  var speedIndex = 1;
+
+  var ORB_COUNT = 14;               // many orbs on the field at once
+  var CATCH = 1;                    // cells: the aura counts, not just the exact cell
+  var ORB_HUES = [0xffd36e, 0x7ef0c0, 0x9db8ff, 0xff9ecd, 0xc2a0ff, 0xffb36e];
+
+  var BODY_R = 0.38;
+  var RINGS = 130;                  // max tube segments along one body piece
+  var RADIAL = 12;                  // tube segments around the body
+  var MAX_PIECES = 12;              // the body is cut into pieces wherever it wraps
+
+  var DIR_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyS'];
+
+  // ---------- scene ----------
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x33415a, 30, 70);
+  var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  // ---------- a clearing in a forest at dusk ----------
+  var SKY_R = 300;
+  (function sky() {
+    var c = document.createElement('canvas');
+    c.width = 4; c.height = 512;
+    var ctx = c.getContext('2d');
+    var g = ctx.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0.00, '#101b36');        // zenith
+    g.addColorStop(0.30, '#24375e');
+    g.addColorStop(0.44, '#5d5d84');
+    g.addColorStop(0.500, '#d79a5c');       // the last of the sun along the horizon
+    g.addColorStop(0.530, '#8a6a63');
+    g.addColorStop(0.560, '#39465c');       // haze: the ground fades into this
+    g.addColorStop(0.650, '#2b3647');
+    g.addColorStop(1.000, '#1a2029');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 4, 512);
+    var dome = new THREE.Mesh(
+      new THREE.SphereGeometry(SKY_R, 32, 24),
+      new THREE.MeshBasicMaterial({
+        map: new THREE.CanvasTexture(c), side: THREE.BackSide, fog: false, depthWrite: false
+      })
+    );
+    dome.renderOrder = -1;
+    scene.add(dome);
+  })();
+
+  var starField = new THREE.Group();
+  scene.add(starField);
+  (function stars() {
+    var count = 700, pos = new Float32Array(count * 3), n = 0;
+    while (n < count) {
+      var u = Math.random();                 // dusk: only the high sky has stars yet
+      var a = Math.random() * Math.PI * 2;
+      var r = 240 * (0.8 + Math.random() * 0.4);
+      var sq = Math.sqrt(1 - u * u);
+      pos[n * 3] = Math.cos(a) * sq * r;
+      pos[n * 3 + 1] = u * r;
+      pos[n * 3 + 2] = Math.sin(a) * sq * r;
+      n++;
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    starField.add(new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0xdfe8ff, size: 1.1, sizeAttenuation: true,
+      transparent: true, opacity: 0.5, depthWrite: false, fog: false
+    })));
+  })();
+
+  // forest floor, running out to meet the sky
+  var ground = new THREE.Mesh(
+    new THREE.CircleGeometry(SKY_R * 0.94, 64),
+    new THREE.MeshStandardMaterial({ color: 0x1b2d1c, roughness: 1, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -ARENA / 2 - 0.06;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Trees ring the clearing in two silhouette bands. They are flat-shaded and exempt
+  // from fog, so the forest keeps its layered depth while the fog stays free to do its
+  // real job: separating the near and far walls of the cage.
+  (function forest() {
+    var firGeo = (function () {
+      // three stacked skirts read as a conifer even as a distant silhouette;
+      // merged by hand, since the merge helper lives outside the core build
+      var parts = [];
+      [[1.05, 2.6, 0.9], [0.72, 2.2, 2.4]].forEach(function (p) {
+        var c = new THREE.ConeGeometry(p[0], p[1], 5);
+        c.translate(0, p[2], 0);
+        parts.push(c.toNonIndexed());
+      });
+      var trunk = new THREE.CylinderGeometry(0.1, 0.16, 1.1, 4);
+      trunk.translate(0, 0.55, 0);
+      parts.push(trunk.toNonIndexed());
+
+      var total = 0;
+      parts.forEach(function (g) { total += g.attributes.position.count; });
+      var pos = new Float32Array(total * 3);
+      var nrm = new Float32Array(total * 3);
+      var at = 0;
+      parts.forEach(function (g) {
+        pos.set(g.attributes.position.array, at * 3);
+        nrm.set(g.attributes.normal.array, at * 3);
+        at += g.attributes.position.count;
+      });
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+      return geo;
+    })();
+
+    function band(count, innerR, outerR, loScale, hiScale, color) {
+      var mesh = new THREE.InstancedMesh(
+        firGeo,
+        new THREE.MeshBasicMaterial({ color: color, fog: false }),
+        count
+      );
+      mesh.frustumCulled = false;
+      var m = new THREE.Object3D();
+      for (var i = 0; i < count; i++) {
+        var a = Math.random() * Math.PI * 2;
+        var r = Math.sqrt(Math.random()) * (outerR - innerR) + innerR;
+        var sc = loScale + Math.random() * (hiScale - loScale);
+        m.position.set(Math.cos(a) * r, -ARENA / 2 - 0.06, Math.sin(a) * r);
+        m.rotation.set(0, Math.random() * Math.PI * 2, 0);
+        m.scale.set(sc * (0.85 + Math.random() * 0.3), sc * (0.8 + Math.random() * 0.5), sc);
+        m.updateMatrix();
+        mesh.setMatrixAt(i, m.matrix);
+      }
+      scene.add(mesh);
+    }
+
+    band(130, ARENA * 3.4, ARENA * 5.5, 1.5, 2.8, 0x243528);     // near treeline, darkest
+    band(170, ARENA * 5.5, ARENA * 9.0, 1.2, 2.2, 0x2f4154);     // middle, hazier
+    band(210, ARENA * 9.0, ARENA * 15.0, 1.0, 1.9, 0x3a4a5e);    // far, nearly the sky
+  })();
+
+  // ---------- light, always from the same direction ----------
+  scene.add(new THREE.HemisphereLight(0x7d93c4, 0x1d2c18, 0.62));
+  scene.add(new THREE.AmbientLight(0x3b4664, 0.45));
+  var key = new THREE.DirectionalLight(0xffd0a0, 1.15);     // the low sun, fixed in the world
+  key.position.set(-46, 30, 22);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.camera.near = 1;
+  key.shadow.camera.far = 110;
+  key.shadow.camera.left = -ARENA;
+  key.shadow.camera.right = ARENA;
+  key.shadow.camera.top = ARENA;
+  key.shadow.camera.bottom = -ARENA;
+  key.shadow.bias = -0.0015;
+  key.shadow.radius = 2;
+  scene.add(key);
+  var rim = new THREE.DirectionalLight(0x7fa6e8, 0.35);     // cool sky fill, also fixed
+  rim.position.set(26, -4, -30);
+  scene.add(rim);
+
+  // ---------- the view: orbit, pan and zoom with the mouse ----------
+  var DEFAULT_DIR = new THREE.Vector3(0.52, 0.42, 1).normalize();
+  var view = { theta: 0, phi: 1, dist: 40 };
+  var target = new THREE.Vector3();
+
+  function fitDistance() {
+    var fov = THREE.MathUtils.degToRad(camera.fov);
+    var need = ARENA * 0.78;                       // half-extent that must stay in frame
+    var distV = need / Math.tan(fov / 2);
+    var distH = need / (Math.tan(fov / 2) * camera.aspect);
+    return Math.max(distV, distH);
+  }
+
+  function applyView() {
+    view.phi = THREE.MathUtils.clamp(view.phi, 0.08, Math.PI - 0.08);
+    view.dist = THREE.MathUtils.clamp(view.dist, ARENA * 0.35, fitDistance() * 1.7);
+    target.clampScalar(-ARENA, ARENA);
+    var sp = Math.sin(view.phi);
+    camera.position.set(
+      target.x + view.dist * sp * Math.sin(view.theta),
+      target.y + view.dist * Math.cos(view.phi),
+      target.z + view.dist * sp * Math.cos(view.theta)
+    );
+    camera.up.set(0, 1, 0);
+    camera.lookAt(target);
+    // fog tracks the zoom, so near and far always read differently however close you get
+    scene.fog.near = Math.max(1, view.dist - ARENA * 0.9);
+    scene.fog.far = view.dist + ARENA * 2.8;
+  }
+
+  function resetView() {
+    if (camMode === 'follow') {
+      followDist = 8.5;
+      snapFollow(cellToWorld(snake[0], wantPos));
+      return;
+    }
+    baseTheta = Math.atan2(DEFAULT_DIR.x, DEFAULT_DIR.z);
+    basePhi = Math.acos(THREE.MathUtils.clamp(DEFAULT_DIR.y, -1, 1));
+    view.theta = baseTheta;
+    view.phi = basePhi;
+    view.dist = fitDistance();
+    target.set(0, 0, 0);
+    applyView();
+  }
+
+  // 'free'  : the view stays put and the mouse moves it
+  // 'follow': the view rides behind the snake, so the angle you look from never changes
+  var camMode = 'free';
+  var followDist = 8.5;
+  var camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+  var camUp = new THREE.Vector3(0, 1, 0);
+  var lastHead = new THREE.Vector3();
+  var haveLastHead = false;
+  var wantPos = new THREE.Vector3(), wantLook = new THREE.Vector3(), shift = new THREE.Vector3();
+
+  function snapFollow(headPos) {
+    camPos.copy(headPos).addScaledVector(dir, -followDist).addScaledVector(up, followDist * 0.5);
+    camLook.copy(headPos).addScaledVector(dir, 2.5);
+    camUp.copy(up);
+    haveLastHead = false;
+  }
+
+  function updateFollowCamera(dt, headPos) {
+    if (haveLastHead) {
+      // the snake just slid through a wall: carry the camera through with it
+      shift.subVectors(headPos, lastHead);
+      shift.set(Math.round(shift.x / ARENA) * ARENA,
+                Math.round(shift.y / ARENA) * ARENA,
+                Math.round(shift.z / ARENA) * ARENA);
+      if (shift.lengthSq() > 0) { camPos.add(shift); camLook.add(shift); }
+    }
+    lastHead.copy(headPos);
+    haveLastHead = true;
+
+    wantPos.copy(headPos).addScaledVector(dir, -followDist).addScaledVector(up, followDist * 0.5);
+    wantLook.copy(headPos).addScaledVector(dir, 2.5);
+    var k = 1 - Math.pow(0.0015, dt / 1000);
+    camPos.lerp(wantPos, k);
+    camLook.lerp(wantLook, k);
+    camUp.lerp(up, 1 - Math.pow(0.0001, dt / 1000)).normalize();
+
+    camera.position.copy(camPos);
+    camera.up.copy(camUp);
+    camera.lookAt(camLook);
+    scene.fog.near = followDist * 0.6;
+    scene.fog.far = followDist + ARENA * 3.6;
+  }
+
+  // The free view answers the mouse on its own: no button, no dragging. The pointer's
+  // place on screen is an offset from the resting angle, eased towards every frame.
+  var HOVER_YAW = 0.5, HOVER_PITCH = 0.34;
+  var hoverX = 0, hoverY = 0;
+  var baseTheta = 0, basePhi = 1;
+
+  function trackHover(e) {
+    hoverX = (e.clientX / window.innerWidth) * 2 - 1;
+    hoverY = (e.clientY / window.innerHeight) * 2 - 1;
+  }
+
+  function updateHoverView(dt) {
+    var wantTheta = baseTheta + hoverX * HOVER_YAW;
+    var wantPhi = basePhi + hoverY * HOVER_PITCH;
+    var k = 1 - Math.pow(0.0008, dt / 1000);
+    view.theta += (wantTheta - view.theta) * k;
+    view.phi += (wantPhi - view.phi) * k;
+    applyView();
+  }
+
+  var drag = null;
+  var panRight = new THREE.Vector3(), panUp = new THREE.Vector3(), fwd = new THREE.Vector3();
+
+  function startDrag(e) {
+    if (camMode === 'follow') return;                             // the view drives itself
+    if (e.target.closest && e.target.closest('.opt')) return;     // let the buttons be clicked
+    if (!(e.button === 1 || e.button === 2 || e.shiftKey)) return; // looking needs no button
+    drag = { x: e.clientX, y: e.clientY };
+    document.body.classList.add('dragging');
+  }
+
+  function moveDrag(e) {
+    trackHover(e);
+    if (!drag) return;
+    var dx = e.clientX - drag.x;
+    var dy = e.clientY - drag.y;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+
+    // slide the cube with the pointer, the way a map moves under the cursor
+    camera.getWorldDirection(fwd);
+    panRight.crossVectors(fwd, camera.up).normalize();
+    panUp.crossVectors(panRight, fwd).normalize();
+    var k = view.dist * 0.0016;
+    target.addScaledVector(panRight, -dx * k);
+    target.addScaledVector(panUp, dy * k);
+    applyView();
+  }
+
+  function endDrag() {
+    drag = null;
+    document.body.classList.remove('dragging');
+  }
+
+  window.addEventListener('pointerdown', startDrag);
+  window.addEventListener('pointermove', moveDrag);
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+  window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  window.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    if (camMode === 'follow') {
+      followDist = THREE.MathUtils.clamp(followDist * Math.exp(e.deltaY * 0.0012), 4, 22);
+    } else {
+      view.dist *= Math.exp(e.deltaY * 0.0012);
+      applyView();
+    }
+  }, { passive: false });
+  window.addEventListener('dblclick', resetView);
+
+  // ---------- which world axis does each key mean right now? ----------
+  function dominantAxis(v, used) {
+    var comps = [v.x, v.y, v.z];
+    var best = -1, bestAbs = -1, sign = 1;
+    for (var i = 0; i < 3; i++) {
+      if (used[i]) continue;
+      var a = Math.abs(comps[i]);
+      if (a > bestAbs) { bestAbs = a; best = i; sign = comps[i] < 0 ? -1 : 1; }
+    }
+    used[best] = true;
+    var out = { x: 0, y: 0, z: 0 };
+    out[['x', 'y', 'z'][best]] = sign;
+    return out;
+  }
+
+  function neg(d) { return { x: -d.x, y: -d.y, z: -d.z }; }
+
+  function dirsFromView(f, r, u) {
+    var used = {};
+    var right = dominantAxis(r, used);     // screen right is the most reliable, so first
+    var upAxis = dominantAxis(u, used);
+    var away = dominantAxis(f, used);      // whichever axis is left over
+    return {
+      ArrowRight: right, ArrowLeft: neg(right),
+      ArrowUp: upAxis, ArrowDown: neg(upAxis),
+      KeyW: away, KeyS: neg(away)
+    };
+  }
+
+  var _f = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3();
+
+  function currentDirs() {
+    if (camMode === 'follow') {
+      // the chase view is bolted to the snake, so read the keys off the snake's own
+      // frame: exact grid axes, and immune to the camera still easing into place
+      _r.crossVectors(dir, up);
+      return dirsFromView(dir, _r, up);
+    }
+    camera.getWorldDirection(_f);          // points away from the viewer
+    _u.set(0, 1, 0);
+    _r.crossVectors(_f, _u).normalize();   // screen right
+    _u.crossVectors(_r, _f).normalize();   // screen up
+    return dirsFromView(_f, _r, _u);
+  }
+
+  // ---------- arena: a boundary you pass through, not a wall ----------
+  scene.add(new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(ARENA, ARENA, ARENA)),
+    new THREE.LineBasicMaterial({ color: 0x8fd0ee, transparent: true, opacity: 0.6 })
+  ));
+
+  // a real surface under the grid, so the snake and the orbs drop shadows onto it
+  var floorPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(ARENA, ARENA),
+    new THREE.MeshStandardMaterial({ color: 0x23301f, roughness: 0.98, metalness: 0 })
+  );
+  floorPlane.rotation.x = -Math.PI / 2;
+  floorPlane.position.y = -WALL - 0.04;
+  floorPlane.receiveShadow = true;
+  scene.add(floorPlane);
+
+  function wallGrid(rotX, rotZ, pos, opacity) {
+    var g = new THREE.GridHelper(ARENA, GRID, 0x335c91, 0x1b305a);
+    g.rotation.x = rotX;
+    g.rotation.z = rotZ;
+    g.position.copy(pos);
+    g.material.transparent = true;
+    g.material.opacity = opacity;
+    scene.add(g);
+  }
+  wallGrid(0, 0, new THREE.Vector3(0, -WALL, 0), 0.5);
+  wallGrid(0, 0, new THREE.Vector3(0, WALL, 0), 0.2);
+  wallGrid(Math.PI / 2, 0, new THREE.Vector3(0, 0, -WALL), 0.34);
+  wallGrid(Math.PI / 2, 0, new THREE.Vector3(0, 0, WALL), 0.2);
+  wallGrid(0, Math.PI / 2, new THREE.Vector3(-WALL, 0, 0), 0.34);
+  wallGrid(0, Math.PI / 2, new THREE.Vector3(WALL, 0, 0), 0.2);
+
+  // ---------- orbs: many of them, each wrapped in a wide aura ----------
+  var coreGeo = new THREE.BoxGeometry(0.46, 0.46, 0.46);
+  var auraGeo = new THREE.SphereGeometry(1, 16, 12);
+  var orbs = [];           // { cell, phase, group, core, inner, outer }
+
+  for (var oi = 0; oi < ORB_COUNT; oi++) {
+    var hue = ORB_HUES[oi % ORB_HUES.length];
+    var group = new THREE.Group();
+    // unlit, so the orb keeps its own colour instead of blowing out to white
+    var core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: hue }));
+    var inner = new THREE.Mesh(auraGeo, new THREE.MeshBasicMaterial({
+      color: hue, transparent: true, opacity: 0.22,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    inner.scale.setScalar(0.75);
+    var outer = new THREE.Mesh(auraGeo, new THREE.MeshBasicMaterial({
+      color: hue, transparent: true, opacity: 0.09,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    outer.scale.setScalar(CATCH + 0.45);          // the aura shows the reach
+    group.add(core, inner, outer);
+    scene.add(group);
+    orbs.push({
+      cell: null,                                 // not on the board until spawned
+      hue: hue,
+      phase: Math.random() * Math.PI * 2,
+      group: group, core: core, inner: inner, outer: outer
+    });
+  }
+
+  // ---------- a ring of light where an orb was taken ----------
+  var BURSTS = 8;
+  var burstRing = new THREE.RingGeometry(0.5, 0.64, 32);
+  var bursts = [];
+  for (var bi = 0; bi < BURSTS; bi++) {
+    var bm = new THREE.Mesh(burstRing, new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false
+    }));
+    bm.visible = false;
+    bm.frustumCulled = false;
+    scene.add(bm);
+    bursts.push({ mesh: bm, t: 1 });
+  }
+
+  function burstAt(orb) {
+    var b = null;
+    for (var i = 0; i < bursts.length; i++) {
+      if (bursts[i].t >= 1) { b = bursts[i]; break; }
+    }
+    if (!b) b = bursts[0];
+    b.t = 0;
+    cellToWorld(orb.cell, b.mesh.position);
+    b.mesh.material.color.setHex(orb.hue);
+    b.mesh.visible = true;
+  }
+
+  function updateBursts(dt) {
+    for (var i = 0; i < bursts.length; i++) {
+      var b = bursts[i];
+      if (b.t >= 1) continue;
+      b.t = Math.min(1, b.t + dt / 520);
+      var e = 1 - Math.pow(1 - b.t, 2);
+      b.mesh.scale.setScalar(0.5 + e * 3.6);
+      b.mesh.material.opacity = (1 - b.t) * 0.85;
+      b.mesh.quaternion.copy(camera.quaternion);       // always face the viewer
+      if (b.t >= 1) b.mesh.visible = false;
+    }
+  }
+
+  // ---------- where the head is ----------
+  var dropPos = new Float32Array(6);
+  var dropGeo = new THREE.BufferGeometry();
+  dropGeo.setAttribute('position', new THREE.BufferAttribute(dropPos, 3));
+  var dropLine = new THREE.LineSegments(
+    dropGeo,
+    new THREE.LineBasicMaterial({ color: 0x6ee7a8, transparent: true, opacity: 0.3 })
+  );
+  dropLine.frustumCulled = false;
+  scene.add(dropLine);
+
+  var shadowRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.22, 0.4, 24),
+    new THREE.MeshBasicMaterial({ color: 0x6ee7a8, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+  );
+  shadowRing.rotation.x = -Math.PI / 2;
+  scene.add(shadowRing);
+
+  function updateDrop(p) {
+    dropPos[0] = p.x; dropPos[1] = p.y; dropPos[2] = p.z;
+    dropPos[3] = p.x; dropPos[4] = -WALL; dropPos[5] = p.z;
+    dropGeo.attributes.position.needsUpdate = true;
+    shadowRing.position.set(p.x, -WALL + 0.02, p.z);
+  }
+
+  // ---------- snake body: tapered tube, cut into pieces wherever it wraps ----------
+  var VERTS = (RINGS + 1) * (RADIAL + 1);
+  var sharedIndex = (function () {
+    var idx = [];
+    for (var i = 0; i < RINGS; i++) {
+      for (var j = 0; j < RADIAL; j++) {
+        var a = i * (RADIAL + 1) + j;
+        var b = a + RADIAL + 1;
+        idx.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    }
+    return idx;
+  })();
+
+  var SKIN_DARK = new THREE.Color(0x236d3c);
+  var SKIN_LIGHT = new THREE.Color(0x8af0a6);
+  var skinCol = new THREE.Color();
+
+  var pieces = [];
+  for (var pi = 0; pi < MAX_PIECES; pi++) {
+    var geo = new THREE.BufferGeometry();
+    var piece = {
+      geo: geo,
+      pos: new Float32Array(VERTS * 3),
+      nrm: new Float32Array(VERTS * 3),
+      col: new Float32Array(VERTS * 3)
+    };
+    geo.setAttribute('position', new THREE.BufferAttribute(piece.pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(piece.nrm, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(piece.col, 3));
+    geo.setIndex(sharedIndex);
+    piece.mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.42, metalness: 0.04
+    }));
+    piece.mesh.frustumCulled = false;
+    piece.mesh.castShadow = true;
+    piece.mesh.visible = false;
+    scene.add(piece.mesh);
+    pieces.push(piece);
+  }
+
+  function radiusAt(t) {
+    var r = BODY_R;
+    if (t < 0.08) r *= 0.84 + (t / 0.08) * 0.16;          // slight neck behind the head
+    if (t > 0.55) {
+      var u = (t - 0.55) / 0.45;
+      r *= 1 - 0.95 * u * u;                              // tapers to a point at the tail
+    }
+    return r;
+  }
+
+  var vP = new THREE.Vector3();
+
+  // builds one run of body points into one tube piece; tFrom/tTo locate the run
+  // along the whole snake so the taper and the banding stay continuous across cuts
+  function fillPiece(piece, pts, tFrom, tTo, totalLen) {
+    var curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+    var rings = THREE.MathUtils.clamp(Math.round(pts.length * 7), 8, RINGS);
+    var frames = curve.computeFrenetFrames(rings, false);
+
+    for (var i = 0; i <= rings; i++) {
+      var local = i / rings;
+      var t = tFrom + (tTo - tFrom) * local;
+      curve.getPoint(local, vP);
+      var N = frames.normals[i];
+      var B = frames.binormals[i];
+      var r = radiusAt(t);
+
+      var band = 0.5 + 0.5 * Math.sin((t * totalLen) * (Math.PI * 2 / 0.8));
+      skinCol.copy(SKIN_DARK).lerp(SKIN_LIGHT, Math.pow(band, 1.6) * (1 - 0.3 * t));
+
+      for (var j = 0; j <= RADIAL; j++) {
+        var v = (j / RADIAL) * Math.PI * 2;
+        var cx = Math.cos(v), sy = Math.sin(v);
+        var nx = cx * N.x + sy * B.x;
+        var ny = cx * N.y + sy * B.y;
+        var nz = cx * N.z + sy * B.z;
+        var k = (i * (RADIAL + 1) + j) * 3;
+        piece.nrm[k] = nx; piece.nrm[k + 1] = ny; piece.nrm[k + 2] = nz;
+        piece.pos[k] = vP.x + nx * r;
+        piece.pos[k + 1] = vP.y + ny * r;
+        piece.pos[k + 2] = vP.z + nz * r;
+        piece.col[k] = skinCol.r; piece.col[k + 1] = skinCol.g; piece.col[k + 2] = skinCol.b;
+      }
+    }
+    piece.geo.setDrawRange(0, rings * RADIAL * 6);
+    piece.geo.attributes.position.needsUpdate = true;
+    piece.geo.attributes.normal.needsUpdate = true;
+    piece.geo.attributes.color.needsUpdate = true;
+    piece.mesh.visible = true;
+  }
+
+  // ---------- snake head ----------
+  var headGroup = new THREE.Group();
+  headGroup.castShadow = true;
+  scene.add(headGroup);
+  var headScale = new THREE.Group();
+  headScale.scale.setScalar(1.5);
+  headGroup.add(headScale);
+
+  var skinMat = new THREE.MeshStandardMaterial({ color: 0x74d894, roughness: 0.4 });
+  var mouthMat = new THREE.MeshStandardMaterial({ color: 0x7a2740, roughness: 0.6 });
+  var sphereGeo = new THREE.SphereGeometry(1, 18, 14);
+
+  var upperPivot = new THREE.Group();
+  upperPivot.position.set(0, 0, 0.12);
+  headScale.add(upperPivot);
+  var skull = new THREE.Mesh(sphereGeo, skinMat);
+  skull.scale.set(0.36, 0.25, 0.46);
+  skull.position.set(0, 0.05, -0.30);
+  upperPivot.add(skull);
+  var palate = new THREE.Mesh(sphereGeo, mouthMat);
+  palate.scale.set(0.30, 0.06, 0.40);
+  palate.position.set(0, -0.08, -0.32);
+  upperPivot.add(palate);
+
+  var lowerPivot = new THREE.Group();
+  lowerPivot.position.set(0, -0.02, 0.12);
+  headScale.add(lowerPivot);
+  var jaw = new THREE.Mesh(sphereGeo, skinMat);
+  jaw.scale.set(0.31, 0.15, 0.40);
+  jaw.position.set(0, -0.12, -0.30);
+  lowerPivot.add(jaw);
+  var gums = new THREE.Mesh(sphereGeo, mouthMat);
+  gums.scale.set(0.26, 0.05, 0.34);
+  gums.position.set(0, -0.03, -0.30);
+  lowerPivot.add(gums);
+
+  var eyeMat = new THREE.MeshStandardMaterial({ color: 0xf8dc8e, emissive: 0x4a3400, roughness: 0.25 });
+  var pupilMat = new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.2 });
+  [-1, 1].forEach(function (side) {
+    var eye = new THREE.Mesh(sphereGeo, eyeMat);
+    eye.scale.setScalar(0.095);
+    eye.position.set(side * 0.22, 0.14, -0.26);
+    upperPivot.add(eye);
+    var pupil = new THREE.Mesh(sphereGeo, pupilMat);
+    pupil.scale.set(0.024, 0.062, 0.034);
+    pupil.position.set(side * 0.285, 0.152, -0.285);
+    upperPivot.add(pupil);
+  });
+
+  var nostrilMat = new THREE.MeshStandardMaterial({ color: 0x1d5536, roughness: 0.8 });
+  [-1, 1].forEach(function (side) {
+    var n = new THREE.Mesh(sphereGeo, nostrilMat);
+    n.scale.setScalar(0.028);
+    n.position.set(side * 0.09, 0.10, -0.70);
+    upperPivot.add(n);
+  });
+
+  headGroup.traverse(function (o) { if (o.isMesh) o.castShadow = true; });
+
+  var tongue = new THREE.Group();
+  tongue.position.set(0, -0.06, -0.50);
+  lowerPivot.add(tongue);
+  var tongueMat = new THREE.MeshStandardMaterial({ color: 0xe03c73, emissive: 0x440b20, roughness: 0.5 });
+  var stem = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.024, 0.28), tongueMat);
+  stem.position.set(0, 0, -0.14);
+  tongue.add(stem);
+  [-1, 1].forEach(function (side) {
+    var fork = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.022, 0.18), tongueMat);
+    fork.position.set(side * 0.038, 0, -0.34);
+    fork.rotation.y = side * -0.34;
+    tongue.add(fork);
+  });
+
+  // ---------- state ----------
+  var STATE_MENU = 0, STATE_PLAY = 1, STATE_DEAD = 2, STATE_PAUSE = 3;
+  var state = STATE_MENU;
+
+  var snake, prevSnake, dir, up, score, stepMs, acc, pendingDir;
+  var mouth = 0, chewTimer = 0;
+  var headQuat = new THREE.Quaternion();
+
+  var $score = document.getElementById('score');
+  var $best = document.getElementById('best');
+  var $len = document.getElementById('len');
+  var $final = document.getElementById('finalScore');
+  var $finalBest = document.getElementById('finalBest');
+  var $menu = document.getElementById('menu');
+  var $over = document.getElementById('over');
+  var $paused = document.getElementById('paused');
+  var $flash = document.getElementById('flash');
+
+  // the best run is remembered between sessions where the browser allows it
+  function loadBest() {
+    try { return parseInt(localStorage.getItem('snake3d.best') || '0', 10) || 0; }
+    catch (e) { return 0; }
+  }
+  function saveBest(v) {
+    try { localStorage.setItem('snake3d.best', String(v)); } catch (e) { /* private mode */ }
+  }
+  var best = loadBest();
+
+  function updateScoreHud(pop) {
+    $score.textContent = String(score);
+    $len.textContent = String(snake.length);
+    if (score > best) { best = score; saveBest(best); }
+    $best.textContent = String(best);
+    if (pop) {
+      $score.classList.remove('pop');
+      void $score.offsetWidth;                      // restart the animation
+      $score.classList.add('pop');
+    }
+  }
+
+  function cellToWorld(c, t) {
+    return t.set((c.x - HALF) * CELL, (c.y - HALF) * CELL, (c.z - HALF) * CELL);
+  }
+
+  // every coordinate wraps: the cage has no outside
+  function wrap(v) { return ((v % GRID) + GRID) % GRID; }
+
+  function axisGap(a, b) {
+    var d = Math.abs(wrap(a) - wrap(b));
+    return Math.min(d, GRID - d);            // shortest way round, through the walls
+  }
+
+  function cellGap(a, b) {
+    return Math.max(axisGap(a.x, b.x), axisGap(a.y, b.y), axisGap(a.z, b.z));
+  }
+
+  // straight-line distance in cells, measured the short way through the walls
+  function cellDistance(a, b) {
+    var dx = axisGap(a.x, b.x), dy = axisGap(a.y, b.y), dz = axisGap(a.z, b.z);
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  function occupied(c, ignoreTail) {
+    var n = snake.length - (ignoreTail ? 1 : 0);
+    for (var i = 0; i < n; i++) {
+      if (snake[i].x === c.x && snake[i].y === c.y && snake[i].z === c.z) return true;
+    }
+    return false;
+  }
+
+  function freeCell(c) {
+    if (occupied(c, false)) return false;
+    for (var i = 0; i < orbs.length; i++) {
+      if (orbs[i].cell && cellGap(c, orbs[i].cell) < 2) return false;
+    }
+    return true;
+  }
+
+  function spawnOrb(orb, minHeadGap) {
+    var c, tries = 0;
+    do {
+      c = {
+        x: Math.floor(Math.random() * GRID),
+        y: Math.floor(Math.random() * GRID),
+        z: Math.floor(Math.random() * GRID)
+      };
+      tries++;
+      if (tries > 300) break;                               // crowded board: take what we get
+    } while (!freeCell(c) || cellGap(c, snake[0]) < minHeadGap);
+    orb.cell = c;
+  }
+
+  function copyCells(arr) {
+    return arr.map(function (p) { return { x: p.x, y: p.y, z: p.z }; });
+  }
+
+  function newGame() {
+    var c = Math.floor(GRID / 2);
+    snake = [];
+    for (var i = 0; i < 5; i++) snake.push({ x: wrap(c - i), y: c, z: c });
+    prevSnake = copyCells(snake);
+    dir = new THREE.Vector3(1, 0, 0);
+    up = new THREE.Vector3(0, 1, 0);
+    score = 0;
+    stepMs = SPEEDS[speedIndex].start;
+    acc = 0;
+    pendingDir = null;
+    mouth = 0;
+    chewTimer = 0;
+    orbs.forEach(function (o) { o.cell = null; });
+    orbs.forEach(function (o) { spawnOrb(o, 5); });
+    updateScoreHud(false);
+    updateHeadQuaternion(1);
+  }
+
+  // ---------- heading ----------
+  function setDir(nd) {
+    if (Math.abs(nd.x * up.x + nd.y * up.y + nd.z * up.z) > 0.5) {
+      up.copy(dir).negate();
+    }
+    dir.set(nd.x, nd.y, nd.z);
+  }
+
+  function isReverse(nd, d) {
+    return nd.x === -d.x && nd.y === -d.y && nd.z === -d.z;
+  }
+
+  // ---------- simulation ----------
+  function orbAt(c) {
+    for (var i = 0; i < orbs.length; i++) {
+      if (orbs[i].cell && cellGap(c, orbs[i].cell) <= CATCH) return i;   // the aura counts
+    }
+    return -1;
+  }
+
+  function step() {
+    if (pendingDir) {
+      setDir(pendingDir);
+      pendingDir = null;
+    }
+
+    prevSnake = copyCells(snake);
+
+    var head = snake[0];
+    var next = {
+      x: wrap(head.x + dir.x),
+      y: wrap(head.y + dir.y),
+      z: wrap(head.z + dir.z)
+    };
+
+    var caught = orbAt(next);
+
+    // no walls any more: only your own body can end the run
+    if (occupied(next, caught === -1)) {
+      gameOver();
+      return;
+    }
+
+    snake.unshift(next);
+    if (caught !== -1) {
+      score++;
+      stepMs = Math.max(SPEEDS[speedIndex].min, stepMs - SPEEDS[speedIndex].gain);
+      chewTimer = 0.32;                 // hold the mouth open through the bite
+      burstAt(orbs[caught]);            // ring of light where it was taken
+      spawnOrb(orbs[caught], 6);
+      updateScoreHud(true);
+    } else {
+      snake.pop();
+    }
+  }
+
+  function gameOver() {
+    state = STATE_DEAD;
+    $final.textContent = String(score);
+    $finalBest.textContent = String(best);
+    $over.classList.add('show');
+    $flash.classList.remove('on');
+    void $flash.offsetWidth;
+    $flash.classList.add('on');
+  }
+
+  function togglePause() {
+    if (state === STATE_PLAY) {
+      state = STATE_PAUSE;
+      $paused.classList.add('show');
+    } else if (state === STATE_PAUSE) {
+      state = STATE_PLAY;
+      $paused.classList.remove('show');
+    }
+  }
+
+  function startGame() {
+    newGame();
+    if (camMode === 'follow') snapFollow(cellToWorld(snake[0], wantPos));
+    state = STATE_PLAY;
+    $menu.classList.remove('show');
+    $over.classList.remove('show');
+    $paused.classList.remove('show');
+    document.body.classList.remove('menu');
+  }
+
+  function toMenu() {
+    state = STATE_MENU;
+    $over.classList.remove('show');
+    $paused.classList.remove('show');
+    $menu.classList.add('show');
+    document.body.classList.add('menu');
+    newGame();
+  }
+
+  // ---------- rendering ----------
+  var ptsPool = [];
+  var vA = new THREE.Vector3(), vB = new THREE.Vector3();
+
+  // The cells of a wrapped snake jump from one face to the opposite one. Each point is
+  // interpolated against the nearest image of its previous cell, so a segment crossing a
+  // wall slides through it instead of shooting back across the whole cage.
+  function buildRenderPoints(t) {
+    var pts = [];
+    for (var i = 0; i < snake.length; i++) {
+      if (!ptsPool[i]) ptsPool[i] = new THREE.Vector3();
+      var pi = Math.min(i, prevSnake.length - 1);
+      cellToWorld(prevSnake[pi], vA);
+      cellToWorld(snake[i], vB);
+      if (Math.abs(vA.x - vB.x) > ARENA / 2) vA.x -= Math.sign(vA.x - vB.x) * ARENA;
+      if (Math.abs(vA.y - vB.y) > ARENA / 2) vA.y -= Math.sign(vA.y - vB.y) * ARENA;
+      if (Math.abs(vA.z - vB.z) > ARENA / 2) vA.z -= Math.sign(vA.z - vB.z) * ARENA;
+      pts.push(ptsPool[i].copy(vA).lerp(vB, t));
+    }
+    return pts;
+  }
+
+  function drawBody(pts) {
+    var n = pts.length;
+    var totalLen = (n - 1) * CELL;
+    var used = 0;
+    var runStart = 0;
+
+    function flush(endExclusive) {
+      if (used >= MAX_PIECES) return;
+      var count = endExclusive - runStart;
+      if (count < 2) return;                                 // a lone point has nothing to tube
+      var run = pts.slice(runStart, endExclusive);
+      var tFrom = runStart / (n - 1);
+      var tTo = (endExclusive - 1) / (n - 1);
+      fillPiece(pieces[used], run, tFrom, tTo, totalLen);
+      used++;
+    }
+
+    for (var i = 1; i < n; i++) {
+      if (pts[i].distanceToSquared(pts[i - 1]) > (CELL * 1.6) * (CELL * 1.6)) {
+        flush(i);                                            // the body wrapped here: cut it
+        runStart = i;
+      }
+    }
+    flush(n);
+
+    for (var p = used; p < MAX_PIECES; p++) pieces[p].mesh.visible = false;
+  }
+
+  var mBasis = new THREE.Matrix4();
+  var vRight = new THREE.Vector3(), vBack = new THREE.Vector3();
+  var targetQuat = new THREE.Quaternion();
+
+  function updateHeadQuaternion(k) {
+    vRight.crossVectors(dir, up);
+    vBack.crossVectors(vRight, up);                 // equals -dir, the model's +Z
+    mBasis.makeBasis(vRight, up, vBack);
+    targetQuat.setFromRotationMatrix(mBasis);
+    if (k >= 1) headQuat.copy(targetQuat);
+    else headQuat.slerp(targetQuat, k);
+  }
+
+  function drawHead(pts, dt, now) {
+    headGroup.position.copy(pts[0]);
+    updateHeadQuaternion(1 - Math.pow(0.0001, dt / 1000));
+    headGroup.quaternion.copy(headQuat);
+
+    // the mouth gapes as it closes on an orb, holds through the bite, then shuts
+    var aboutToEat = false;
+    if (state === STATE_PLAY || state === STATE_PAUSE) {
+      aboutToEat = orbAt({
+        x: wrap(snake[0].x + dir.x),
+        y: wrap(snake[0].y + dir.y),
+        z: wrap(snake[0].z + dir.z)
+      }) !== -1;
+    }
+    if (chewTimer > 0) chewTimer -= dt / 1000;
+    var tgt = (aboutToEat || chewTimer > 0) ? 1 : 0;
+    mouth += (tgt - mouth) * (1 - Math.pow(0.002, dt / 1000));
+
+    upperPivot.rotation.x = mouth * 0.36;
+    lowerPivot.rotation.x = -mouth * 0.66;
+
+    // tongue flicks while the mouth is shut and tucks away during a bite
+    var idle = Math.max(0, Math.sin(now * 0.0022) - 0.72) / 0.28;
+    var flick = Math.max(idle * (1 - mouth), mouth * 0.2);
+    tongue.scale.set(1, 1, 0.15 + flick);
+    tongue.visible = flick > 0.02;
+  }
+
+  function drawOrbs(now) {
+    var head = snake[0];
+    for (var i = 0; i < orbs.length; i++) {
+      var o = orbs[i];
+      o.group.visible = !!o.cell;
+      if (!o.cell) continue;
+      cellToWorld(o.cell, o.group.position);
+
+      // An orb swells and brightens as the head closes on it. Perspective alone is a
+      // weak cue inside a cube, so this is what tells you how deep an orb really is.
+      var near = THREE.MathUtils.clamp(1 - cellDistance(head, o.cell) / (GRID * 0.55), 0, 1);
+      var grow = near * near;
+
+      var pulse = 0.5 + 0.5 * Math.sin(now * 0.0025 + o.phase);
+      o.core.rotation.y = now * 0.0016 + o.phase;
+      o.core.rotation.x = now * 0.0011 + o.phase;
+      o.core.scale.setScalar((0.82 + pulse * 0.18) * (1 + grow * 1.55));
+      o.inner.scale.setScalar((0.64 + pulse * 0.12) * (1 + grow * 1.30));
+      o.outer.scale.setScalar((CATCH + 0.30 + pulse * 0.22) * (1 + grow * 0.90));
+      o.inner.material.opacity = 0.13 + pulse * 0.08 + grow * 0.24;
+      o.outer.material.opacity = 0.05 + pulse * 0.04 + grow * 0.11;
+    }
+  }
+
+  // ---------- loop ----------
+  var last = performance.now();
+
+  function animate(now) {
+    requestAnimationFrame(animate);
+    var dt = Math.min(now - last, 100);
+    last = now;
+
+    if (state === STATE_PLAY) {
+      acc += dt;
+      while (acc >= stepMs && state === STATE_PLAY) {
+        acc -= stepMs;
+        step();
+      }
+    }
+
+    var t = (state === STATE_PLAY || state === STATE_PAUSE) ? Math.min(acc / stepMs, 1) : 1;
+    var pts = buildRenderPoints(t);
+    drawBody(pts);
+    drawHead(pts, dt, now);
+    updateDrop(pts[0]);
+    drawOrbs(now);
+    updateBursts(dt);
+    starField.rotation.y += dt * 0.000015;
+
+    if (camMode === 'follow') updateFollowCamera(dt, pts[0]);
+    else updateHoverView(dt);
+
+    renderer.render(scene, camera);
+  }
+
+  // ---------- menu / keyboard ----------
+  var speedButtons = Array.prototype.slice.call(document.querySelectorAll('#speeds .btn'));
+  var camButtons = Array.prototype.slice.call(document.querySelectorAll('#cams .btn'));
+
+  function selectSpeed(i) {
+    speedIndex = i;
+    speedButtons.forEach(function (b, bi) { b.classList.toggle('sel', bi === i); });
+  }
+
+  function selectCam(mode) {
+    camMode = mode;
+    camButtons.forEach(function (b) { b.classList.toggle('sel', b.dataset.cam === mode); });
+    if (mode === 'follow') snapFollow(cellToWorld(snake[0], wantPos));
+    else applyView();
+  }
+
+  speedButtons.forEach(function (b) {
+    b.addEventListener('click', function () { selectSpeed(Number(b.dataset.speed)); });
+  });
+  camButtons.forEach(function (b) {
+    b.addEventListener('click', function () { selectCam(b.dataset.cam); });
+  });
+
+  // e.code throughout, so the keys work on any keyboard layout
+  window.addEventListener('keydown', function (e) {
+    var c = e.code;
+
+    if (c === 'Digit0' || c === 'Numpad0') { resetView(); return; }
+    if (c === 'KeyC') { selectCam(camMode === 'free' ? 'follow' : 'free'); return; }
+
+    if (state === STATE_MENU) {
+      if (c === 'Digit1' || c === 'Digit2' || c === 'Digit3') {
+        selectSpeed(Number(c.slice(5)) - 1);
+        return;
+      }
+      if (c === 'ArrowLeft') { e.preventDefault(); selectSpeed(Math.max(0, speedIndex - 1)); return; }
+      if (c === 'ArrowRight') { e.preventDefault(); selectSpeed(Math.min(2, speedIndex + 1)); return; }
+      if (c === 'Enter' || c === 'NumpadEnter' || c === 'Space') { e.preventDefault(); startGame(); return; }
+      return;
+    }
+
+    if (c === 'KeyM') { toMenu(); return; }
+    if (c === 'KeyR') { startGame(); return; }
+    if (c === 'KeyP') { togglePause(); return; }
+
+    if (state === STATE_PLAY && DIR_KEYS.indexOf(c) !== -1) {
+      e.preventDefault();
+      var nd = currentDirs()[c];
+      // ignore a key that would double the snake straight back into its own neck
+      if (!isReverse(nd, pendingDir || dir)) pendingDir = nd;
+    }
+  });
+
+  window.addEventListener('resize', function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    if (camMode === 'free') applyView();      // the follow camera re-aims next frame
+  });
+
+  newGame();                   // gives the start screen a snake to look at
+  resetView();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
